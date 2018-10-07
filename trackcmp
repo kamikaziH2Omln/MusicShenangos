@@ -1,0 +1,195 @@
+#!/usr/bin/python
+
+#Audio Tools, a module and set of tools for manipulating audio data
+#Copyright (C) 2007-2010  Brian Langenberger
+
+#This program is free software; you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation; either version 2 of the License, or
+#(at your option) any later version.
+
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU General Public License for more details.
+
+#You should have received a copy of the GNU General Public License
+#along with this program; if not, write to the Free Software
+#Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+
+import audiotools
+import sys
+import os
+import os.path
+import operator
+import gettext
+
+gettext.install("audiotools", unicode=True)
+
+
+def near_equal(audiofile1, audiofile2):
+    p1 = audiofile1.to_pcm()
+    p2 = audiofile2.to_pcm()
+    try:
+        return audiotools.stripped_pcm_cmp(p1, p2)
+    finally:
+        p1.close()
+        p2.close()
+
+
+if (__name__ == '__main__'):
+    parser = audiotools.OptionParser(
+        usage=_(u'%prog <file 1> <file 2>'),
+        version="Python Audio Tools %s" % (audiotools.VERSION))
+
+    parser.add_option('-R', '--no-summary',
+                      action='store_true',
+                      dest='no_summary',
+                      help=_(u'suppress summary output'))
+
+    parser.add_option('-V', '--verbose',
+                      action='store',
+                      dest='verbosity',
+                      choices=audiotools.VERBOSITY_LEVELS,
+                      default=audiotools.DEFAULT_VERBOSITY,
+                      help=_(u'the verbosity level to execute at'))
+
+    (options, args) = parser.parse_args()
+    msg = audiotools.Messenger("trackcmp", options)
+
+    if (len(args) != 2):
+        msg.usage(_(u"<path 1> <path 2>"))
+        sys.exit(1)
+
+    check_function = audiotools.pcm_frame_cmp
+
+    if (os.path.isfile(args[0]) and os.path.isfile(args[1])):
+        audiofiles = audiotools.open_files(args, messenger=msg)
+        if (len(audiofiles) != 2):
+            msg.error(_(u"Both files to be compared must be audio files"))
+            sys.exit(1)
+        try:
+            frame_mismatch = check_function(audiofiles[0].to_pcm(),
+                                            audiofiles[1].to_pcm())
+            if (frame_mismatch is None):
+                pass
+            else:
+                msg.partial_output(
+                    _(u"%(file1)s <> %(file2)s : ") % \
+                        {"file1": msg.filename(audiofiles[0].filename),
+                         "file2": msg.filename(audiofiles[1].filename)})
+                msg.output(msg.ansi(
+                        _(u"differ at PCM frame %(frame_number)d") %
+                        {"frame_number": frame_mismatch + 1}, [msg.FG_RED]))
+                sys.exit(1)
+        except (IOError, ValueError, audiotools.DecodingError), err:
+            msg.error(unicode(err))
+            sys.exit(1)
+
+    elif (os.path.isdir(args[0]) and os.path.isdir(args[1])):
+        successes = 0
+        failures = 0
+
+        files1 = audiotools.open_files(
+            [os.path.join(args[0], f) for f in os.listdir(args[0])
+             if os.path.isfile(os.path.join(args[0], f))],
+            messenger=msg)
+        files2 = audiotools.open_files(
+            [os.path.join(args[1], f) for f in os.listdir(args[1])
+             if os.path.isfile(os.path.join(args[1], f))],
+            messenger=msg)
+
+        files1_map = dict([((f.album_number(), f.track_number()), f)
+                           for f in files1])
+        files2_map = dict([((f.album_number(), f.track_number()), f)
+                           for f in files2])
+
+        files1_tracknumbers = set(files1_map.keys())
+        files2_tracknumbers = set(files2_map.keys())
+
+        for (album_number, track_number) in sorted(
+            list(files1_tracknumbers - files2_tracknumbers)):
+            if (album_number == 0):
+                msg.partial_output(
+                    _(u"%s : ") % (msg.filename(
+                            os.path.join(args[1],
+                                         "track %2.2d" % (track_number)))))
+            else:
+                msg.partial_output(
+                    _(u"%s : ") % (msg.filename(os.path.join(
+                                args[1],
+                                "album %d track %2.2d" % (album_number,
+                                                          track_number)))))
+            failures += 1
+            msg.output(msg.ansi(_(u"missing"), [msg.FG_RED]))
+
+        for (album_number, track_number) in sorted(
+            list(files2_tracknumbers - files1_tracknumbers)):
+            if (album_number == 0):
+                msg.partial_output(
+                    _(u"%s : ") % (msg.filename(
+                            os.path.join(args[0],
+                                         "track %2.2d" % (track_number)))))
+            else:
+                msg.partial_output(
+                    _(u"%s : ") % (msg.filename(os.path.join(
+                                args[0],
+                                "album %d track %2.2d" % (album_number,
+                                                          track_number)))))
+
+            failures += 1
+            msg.output(msg.ansi(_(u"missing"), [msg.FG_RED]))
+
+        for (album_number, track_number) in sorted(
+            list(files1_tracknumbers & files2_tracknumbers)):
+            msg.partial_output(_(u"%(file1)s <> %(file2)s : ") % \
+                         {"file1": msg.filename(
+                        files1_map[(album_number, track_number)].filename),
+                          "file2": msg.filename(
+                        files2_map[(album_number, track_number)].filename)})
+
+            try:
+                frame_mismatch = check_function(
+                    files1_map[(album_number, track_number)].to_pcm(),
+                    files2_map[(album_number, track_number)].to_pcm())
+                if (frame_mismatch is None):
+                    msg.output(msg.ansi(_(u"OK"), [msg.FG_GREEN]))
+                    successes += 1
+                else:
+                    msg.output(msg.ansi(
+                            _(u"differ at PCM frame %(frame_number)d") %
+                            {"frame_number": frame_mismatch + 1},
+                            [msg.FG_RED]))
+                    failures += 1
+            except (IOError, ValueError, audiotools.DecodingError), msg:
+                msg.output(msg.ansi(_(u"error"), [msg.FG_RED]))
+                msg.error(unicode(msg))
+                failures += 1
+
+        if (not options.no_summary):
+            msg.output(_(u"Results:"))
+            msg.output(u"")
+            msg.new_row()
+            msg.output_column(_(u"success"), True)
+            msg.output_column(u" ")
+            msg.output_column(_(u"failure"), True)
+            msg.output_column(u" ")
+            msg.output_column(_(u"total"), True)
+            msg.divider_row([u"-", u" ", u"-", u" ", u"-"])
+            msg.new_row()
+            msg.output_column(unicode(successes), True)
+            msg.output_column(u" ")
+            msg.output_column(unicode(failures), True)
+            msg.output_column(u" ")
+            msg.output_column(unicode(successes + failures), True)
+            msg.output_rows()
+
+        if (failures > 0):
+            sys.exit(1)
+    else:
+        msg.partial_output(_(u"%(file1)s <> %(file2)s : ") %
+                           {"file1": msg.filename(args[0]),
+                            "file2": msg.filename(args[1])})
+        msg.output(msg.ansi(_(u"differ in type"), [msg.FG_RED]))
+        sys.exit(1)

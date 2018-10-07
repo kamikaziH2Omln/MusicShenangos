@@ -1,0 +1,45 @@
+.TH "cd2info" 1 "September 13, 2009" "" "Compact Disc Information"
+.SH NAME
+cd2info \- prints information about a compact disc
+.SH SYNOPSIS
+cd2info [OPTIONS]
+.SH DESCRIPTION
+.PP
+cdinfo takes a compact disc device and writes information about the
+current disc to standard output.
+This includes the total number of tracks, the total length of the disc,
+the FreeDB and MusicBrainz disc IDs, and the length/offset information
+of each track.
+.SH OPTIONS
+.TP
+\fB-h, --help\fR
+Show a list of options and exit
+.TP
+\fB--version\fR
+Show the program's version and exit
+.TP
+\fB-c \fIcdrom\fB, --cdrom=\fIcdrom\fR
+The cdrom device to read CD information from
+.SH SEE ALSO
+.BR audiotools-config (1),
+.BR cd2track (1),
+.BR cd2xmcd (1),
+.BR coverdump (1),
+.BR coverview (1),
+.BR editxmcd (1),
+.BR record2track (1),
+.BR track2cd (1),
+.BR track2track (1),
+.BR track2xmcd (1),
+.BR trackcat (1),
+.BR trackcmp (1),
+.BR trackinfo (1),
+.BR tracklength (1),
+.BR tracklint (1),
+.BR trackplay (1),
+.BR trackrename (1),
+.BR tracksplit (1),
+.BR tracktag (1),
+.BR trackverify (1)
+.SH AUTHOR
+Brian Langenberger

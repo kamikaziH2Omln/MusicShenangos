@@ -1,0 +1,231 @@
+#!/usr/bin/python
+
+#Audio Tools, a module and set of tools for manipulating audio data
+#Copyright (C) 2007-2010  Brian Langenberger
+
+#This program is free software; you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation; either version 2 of the License, or
+#(at your option) any later version.
+
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU General Public License for more details.
+
+#You should have received a copy of the GNU General Public License
+#along with this program; if not, write to the Free Software
+#Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+
+import audiotools
+import sys
+import struct
+import ossaudiodev
+
+#This takes a channel count and returns a tuple of PulseAudio
+#channel map strings (for sending to pacat(1)) in order to know
+#where to send them.
+#It assumes the FLAC channel mapping, which seems to be a standard.
+PULSEAUDIO_CHANNEL_MAP = \
+    {1: ("mono",),
+     2: ("front-left", "front-right"),
+     3: ("front-left", "front-right", "front-center"),
+     4: ("front-left", "front-right", "rear-left", "rear-right"),
+     5: ("front-left", "front-right", "front-center",
+        "rear-left", "rear-right"),
+     6: ("front-left", "front-right", "front-center",
+        "lfe", "rear-left", "rear-right")}
+
+
+class OSSPlayer:
+    NAME = 'oss'
+
+    def __init__(self):
+        self.dev = ossaudiodev.open("w")
+
+    def close(self):
+        self.dev.close()
+
+    def play(self, pcm, audiofile):
+        if (pcm.bits_per_sample == 16):
+            fmt = ossaudiodev.AFMT_S16_LE
+        elif (pcm.bits_per_sample == 8):
+            fmt = ossaudiodev.AFMT_U8
+        else:
+            #if the bits-per-sample is not 8/16 (which usually means 24)
+            #have PCMConverter turn it into 16 for us
+            pcm = audiotools.PCMConverter(
+                pcm,
+                sample_rate=pcm.sample_rate,
+                channels=pcm.channels,
+                channel_mask=pcm.channel_mask,
+                bits_per_sample=16)
+            fmt = ossaudiodev.AFMT_S16_LE
+
+        self.dev.setparameters(fmt,
+                          pcm.channels,
+                          pcm.sample_rate)
+
+        audiotools.threaded_transfer_framelist_data(pcm, self.dev.writeall)
+
+    @classmethod
+    def available(cls):
+        return True
+
+
+class __FloatConverter__:
+    def __init__(self, pcmreader):
+        self.pcmreader = pcmreader
+        self.bits_per_sample = pcmreader.bits_per_sample
+        self.channels = pcmreader.channels
+        self.sample_rate = pcmreader.sample_rate
+
+    def read(self, bytes):
+        framelist = self.pcmreader.read(bytes)
+        return struct.pack("<%df" % (len(framelist)), *(framelist.to_float()))
+
+
+class PulsePlayer:
+    NAME = 'pulse'
+
+    def __init__(self):
+        pass
+
+    def close(self):
+        pass
+
+    @classmethod
+    def server_alive(cls):
+        import subprocess
+
+        dev = subprocess.Popen([audiotools.BIN["pactl"], "stat"],
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+        dev.stdout.read()
+        dev.stderr.read()
+        return (dev.wait() == 0)
+
+    def play(self, pcm, audiofile):
+        import subprocess
+
+        #This is a race condition
+        #since the server might vanish between now and when we
+        #start piping audio to it.
+        #But that's unlikely enough to not worry too much about.
+        if (not PulsePlayer.server_alive()):
+            raise IOError("PulseAudio server not found")
+
+        metadata = audiofile.get_metadata()
+        if (metadata is not None):
+            stream_name = metadata.track_name.encode('utf-8')
+        else:
+            stream_name = audiofile.filename
+
+        stream_name = stream_name.replace(chr(0), " ")
+
+        if (pcm.channels in PULSEAUDIO_CHANNEL_MAP.keys()):
+            channel_map = []
+            #channel_map = ["--channel-map=%s" % \
+            #               (",".join(PULSEAUDIO_CHANNEL_MAP[pcm.channels]))
+        else:
+            channel_map = []
+
+        dev = subprocess.Popen([audiotools.BIN["pacat"],
+                                "-p", "-n", "trackplay",
+                                "--stream-name=%s" % (stream_name),
+                                "--rate=%d" % (pcm.sample_rate),
+                                "--format=float32le",
+                                "--channels=%d" % (pcm.channels)] + \
+                                   channel_map,
+                               stdin=subprocess.PIPE)
+
+        # if (pcm.bits_per_sample in (8,16)):
+        #     #8 and 16 bit ints can be passed through directly
+        #     audiotools.threaded_transfer_framelist_data(pcm,dev.stdin.write)
+        # else:
+        #    #24 bit ints must be converted to floats
+        audiotools.threaded_transfer_framelist_data(
+            __FloatConverter__(pcm),
+            dev.stdin.write)
+
+        dev.stdin.close()
+        dev.wait()
+
+    @classmethod
+    def available(cls):
+        return (audiotools.BIN.can_execute(audiotools.BIN["pacat"]) and
+                audiotools.BIN.can_execute(audiotools.BIN["pactl"]) and
+                cls.server_alive())
+
+if (__name__ == '__main__'):
+    parser = audiotools.OptionParser(
+        usage=_(u"%prog <track 1> [track 2] ..."),
+        version="Python Audio Tools %s" % (audiotools.VERSION))
+
+    parser.add_option(
+        '-T', '--track-replaygain',
+        action='store_true',
+        default=False,
+        dest='track_replaygain',
+        help=_(u'apply track ReplayGain during playback, if present'))
+
+    parser.add_option(
+        '-A', '--album-replaygain',
+        action='store_true',
+        default=False,
+        dest='album_replaygain',
+        help=_(u'apply album ReplayGain during playback, if present'))
+
+    players = [p for p in [OSSPlayer, PulsePlayer] if p.available()]
+    players_map = dict([(p.NAME, p) for p in players])
+
+    parser.add_option(
+        '-o', '--output',
+        action='store',
+        dest='output',
+        choices=players_map.keys(),
+        default=players[-1].NAME,
+        help=_(u"the method to play audio (choose from: %s)") % \
+            u", ".join([u"\"%s\"" % (k.decode('ascii')) for k in
+                        players_map.keys()]))
+
+    (options, args) = parser.parse_args()
+    msg = audiotools.Messenger("trackplay", options)
+
+    player = players_map[options.output]()
+
+    try:
+        try:
+            for audiofile in audiotools.open_files(args, sorted=False,
+                                                   messenger=msg):
+                pcm = audiofile.to_pcm()
+
+                try:
+                    #if ReplayGain specified, wrap ReplayGainReader
+                    #around the given PCMReader
+                    if (options.track_replaygain or options.album_replaygain):
+                        replaygain = audiofile.replay_gain()
+                        if ((replaygain is not None) and
+                            options.album_replaygain):
+                            pcm = audiotools.ReplayGainReader(
+                                pcm,
+                                replaygain.album_gain,
+                                replaygain.album_peak)
+                        elif ((replaygain is not None) and
+                              options.track_replaygain):
+                            pcm = audiotools.ReplayGainReader(
+                                pcm,
+                                replaygain.track_gain,
+                                replaygain.track_peak)
+
+                    player.play(pcm, audiofile)
+                finally:
+                    pcm.close()
+        except IOError, err:
+            msg.error(unicode(err))
+            sys.exit(1)
+        except audiotools.DecodingError:
+            sys.exit(1)
+    finally:
+        player.close()

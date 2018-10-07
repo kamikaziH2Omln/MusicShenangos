@@ -1,0 +1,107 @@
+#!/usr/bin/python
+
+#Audio Tools, a module and set of tools for manipulating audio data
+#Copyright (C) 2007-2010  Brian Langenberger
+
+#This program is free software; you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation; either version 2 of the License, or
+#(at your option) any later version.
+
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU General Public License for more details.
+
+#You should have received a copy of the GNU General Public License
+#along with this program; if not, write to the Free Software
+#Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+
+import sys
+import audiotools
+import os.path
+import subprocess
+import gettext
+
+gettext.install("audiotools", unicode=True)
+
+if (__name__ == '__main__'):
+    parser = audiotools.OptionParser(
+        _(u"%prog [options] [-x XMCD file] <track 1> [track 2] ..."),
+        version="Python Audio Tools %s" % (audiotools.VERSION))
+
+    parser.add_option('-x', '--xmcd',
+                      action='store',
+                      type='string',
+                      dest='xmcd',
+                      metavar='FILENAME',
+                      help=_(u'FreeDB XMCD file or MusicBrainz XML file'))
+
+    parser.add_option('--format',
+                      action='store',
+                      type='string',
+                      default=None,
+                      dest='format',
+                      help=_(u'the format string for new filenames'))
+
+    parser.add_option('-V', '--verbose',
+                      action='store',
+                      dest='verbosity',
+                      choices=audiotools.VERBOSITY_LEVELS,
+                      default=audiotools.DEFAULT_VERBOSITY,
+                      help=_(u'the verbosity level to execute at'))
+
+    (options, args) = parser.parse_args()
+    msg = audiotools.Messenger("trackrename", options)
+
+    audiofiles = audiotools.open_files(args, messenger=msg)
+
+    if (len(audiofiles) < 1):
+        msg.error(_(u"You must specify at least 1 supported audio file"))
+        sys.exit(1)
+
+    if (options.verbosity != 'quiet'):
+        mv_flags = '-iv'
+    else:
+        mv_flags = '-i'
+
+    if (options.xmcd is not None):
+        #try to set the metadata and track name from the XMCD metadata
+        try:
+            xmcd = audiotools.read_metadata_file(options.xmcd)
+        except audiotools.MetaDataFileException, err:
+            msg.error(unicode(err))
+            sys.exit(1)
+    else:
+        xmcd = audiotools.AlbumMetaData([])
+
+    try:
+        for track in audiofiles:
+            track_metadata = xmcd.get(track.track_number(), None)
+            if (track_metadata is None):
+                track_metadata = track.get_metadata()
+            else:
+                track_metadata.merge(track.get_metadata())
+
+            new_name = track.track_name(file_path=track.filename,
+                                        track_metadata=track_metadata,
+                                        format=options.format)
+
+            (path, filename) = os.path.split(track.filename)
+            if (filename != new_name):
+                try:
+                    audiotools.make_dirs(os.path.join(path, new_name))
+                except OSError:
+                    msg.error(_(u"Unable to write \"%s\"") % \
+                                      (new_name))
+                    sys.exit(1)
+
+                if (subprocess.call([audiotools.BIN['mv'],
+                                     mv_flags,
+                                     track.filename,
+                                     os.path.join(path, new_name)]) != 0):
+                    sys.exit(1)
+    except audiotools.UnsupportedTracknameField, err:
+        err.error_msg(msg)
+        sys.exit(1)

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<diagram>
+  <row>
+    <col start="0" end="31" width=".5">Block ID `wvpk' (0x6B707677)</col>
+    <col start="32" end="63" width=".5">Block Size</col>
+  </row>
+  <row>
+    <col start="64" end="79" width=".25">Version</col>
+    <col start="80" end="87" width=".25">Track Number</col>
+    <col start="88" end="95" width=".25">Index Number</col>
+    <col start="96" end="127" width=".25">Total Samples</col>
+  </row>
+  <row>
+    <col start="128" end="159" width=".5">Block Index</col>
+    <col start="160" end="191" width=".5">Block Samples</col>
+  </row>
+  <row>
+    <col start="192" end="193" width=".25">Bits per Sample</col>
+    <col start="194" end="194" width=".25">Mono Output</col>
+    <col start="195" end="195" width=".25">Hybrid Mode</col>
+    <col start="196" end="196" width=".25">Joint Stereo</col>
+  </row>
+  <row>
+    <col start="197" end="197" width=".27">Channel Decorrelation</col>
+    <col start="198" end="198" width=".23">Hbd. Noise Shaping</col>
+    <col start="199" end="199" width=".23">Floating Point Data</col>
+    <col start="200" end="200" width=".27">Extended Size Integers</col>
+  </row>
+  <row>
+    <col start="201" end="201" width=".25">Hbd. Controls Bitrate</col>
+    <col start="202" end="202" width=".25">Hbd. Noise Balanced</col>
+    <col start="203" end="203" width=".25">Initial Block</col>
+    <col start="204" end="204" width=".25">Final Block</col>
+  </row>
+  <row>
+    <col start="205" end="209" width=".333333">Left Shift Data</col>
+    <col start="210" end="214" width=".333333">Maximum Magnitude</col>
+    <col start="215" end="218" width=".333333">Sample Rate</col>
+  </row>
+  <row>
+    <col start="219" end="220" width=".25">Reserved</col>
+    <col start="221" end="221" width=".25">Use IIR</col>
+    <col start="222" end="222" width=".25">False Stereo</col>
+    <col start="223" end="223" width=".25">Reserved</col>
+  </row>
+  <row>
+    <col start="224" end="255">CRC</col>
+  </row>
+</diagram>
